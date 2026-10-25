@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanning Tunneling Microscope Lab</title>
+<style>
+  :root {
+    --bg: #0d1217;
+    --panel: #151c24;
+    --line: #26323f;
+    --text: #dbe4ec;
+    --dim: #8497a8;
+    --accent: #ffb454;
+    --cool: #5ec2d6;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: .2px; }
+  header span { color: var(--dim); font-size: 13px; }
+  main { flex: 1; display: flex; min-height: 0; flex-wrap: wrap; }
+  #stage { position: relative; flex: 1 1 520px; min-height: 360px; }
+  canvas#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  canvas#view:active { cursor: grabbing; }
+  #inset { position: absolute; right: 12px; top: 12px; background: rgba(13,18,23,.82); border: 1px solid var(--line); padding: 6px; border-radius: 6px; }
+  #inset canvas { width: 144px; height: 144px; image-rendering: pixelated; display: block; border-radius: 3px; }
+  #inset p { margin: 5px 0 0; font-size: 11px; color: var(--dim); text-align: center; }
+  #hint { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--dim); }
+  aside { flex: 0 0 300px; max-width: 100%; border-left: 1px solid var(--line); background: var(--panel); padding: 16px; overflow-y: auto; }
+  aside h2 { font-size: 14px; margin: 0 0 12px; font-weight: 600; }
+  .ctl { margin-bottom: 14px; }
+  .ctl label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+  .ctl output { color: var(--accent); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 16px; }
+  button { background: #1d2833; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--cool); outline-offset: 2px; }
+  dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; font-size: 13px; border-top: 1px solid var(--line); padding-top: 12px; }
+  dt { color: var(--dim); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--cool); }
+  #info { position: absolute; inset: 0; background: rgba(8,11,14,.94); padding: 22px; overflow-y: auto; display: none; z-index: 5; }
+  #info.open { display: block; }
+  #info .inner { max-width: 640px; margin: 0 auto; line-height: 1.55; font-size: 14px; }
+  #info h2 { font-size: 18px; margin-top: 0; }
+  #info h3 { font-size: 14px; margin: 18px 0 6px; }
+  #info li { margin-bottom: 4px; }
+  code { background: #1d2833; padding: 1px 5px; border-radius: 3px; }
+  @media (max-width: 860px) { aside { flex-basis: 100%; border-left: 0; border-top: 1px solid var(--line); } #stage { flex-basis: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Scanning Tunneling Microscope Lab</h1>
+  <span>Fly the tip over the lattice with a game controller and paint the topographic image yourself.</span>
+</header>
+<main>
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <div id="inset"><canvas id="img" width="64" height="64"></canvas><p id="imgLabel">Height map</p></div>
+    <div id="readout" style="position:absolute;left:12px;top:12px;background:rgba(13,18,23,.82);border:1px solid var(--line);border-radius:6px;padding:8px 12px;font-size:13px;line-height:1.6;font-variant-numeric:tabular-nums">
+      <div><span style="color:var(--dim)">Tunneling current</span> <b id="rI2" style="color:var(--accent);margin-left:6px">—</b></div>
+      <div><span style="color:var(--dim)">Transmission T</span> <b id="rT2" style="color:var(--cool);margin-left:6px">—</b></div>
+    </div>
+    <div id="hint">Left stick: move tip · Right stick: orbit · LT/RT: tip height · A: mode · B: auto/manual · X: reset · LB/RB: zoom</div>
+    <div id="info">
+      <div class="inner">
+        <button id="closeInfo" style="float:right">Close</button>
+        <h2>About this simulation</h2>
+        <p>A scanning tunneling microscope (STM) images a conducting surface without a lens. An atomically sharp needle sits a few tenths of a nanometre above the sample, and the instrument measures the tiny current of electrons that tunnel across the vacuum gap even though they lack the energy to cross it classically.</p>
+        <h3>How it works</h3>
+        <ul>
+          <li>The gap and the work function form a rectangular barrier for electrons.</li>
+          <li>Transmission falls off exponentially with gap width: <code>T ≈ exp(−2κd)</code>, with <code>κ ≈ 5.12·√φ</code> per nm (φ in eV).</li>
+          <li>Current is proportional to T and to the bias voltage.</li>
+          <li>In constant-current mode the tip rises over atoms and dips between them to hold the current fixed, so its height traces the surface.</li>
+          <li>In constant-height mode the tip stays level and the current varies instead.</li>
+        </ul>
+        <h3>Controls</h3>
+        <ul>
+          <li><b>Tip height</b>: the gap above the lattice (nm). In constant-current mode, moving it picks the current the feedback loop holds.</li>
+          <li><b>Work function</b>: the barrier height (eV). In constant-current mode the tip moves to keep the current fixed when you change it.</li>
+          <li><b>Bias voltage</b>: the voltage across the junction. In constant-current mode the tip moves to keep the current fixed when you change it.</li>
+          <li><b>Scan speed</b>: how fast the tip rasters.</li>
+        </ul>
+        <h3>Controller</h3>
+        <ul>
+          <li><b>Left stick</b> moves the tip over the surface (relative to the camera); <b>right stick</b> orbits the view; <b>LB/RB</b> zoom.</li>
+          <li><b>RT</b> retracts the tip, <b>LT</b> approaches the surface. Watch the current change exponentially.</li>
+          <li><b>A</b> switches constant current / constant height, <b>B</b> toggles manual / auto raster, <b>X</b> resets the scan, <b>Y</b> opens this panel.</li>
+          <li>No pad? Use <code>W A S D</code> or arrow keys to move, <code>Q</code>/<code>E</code> for height.</li>
+        </ul>
+        <h3>Did you know?</h3>
+        <p>Moving the tip one ångström closer can change the current by roughly a factor of ten. Binnig and Rohrer shared the 1986 Nobel Prize in Physics for inventing the STM.</p>
+      </div>
+    </div>
+  </div>
+  <aside>
+    <h2>Controller</h2>
+    <canvas id="pad" width="260" height="84" style="width:100%;max-width:260px;display:block"></canvas>
+    <p id="padStatus" style="font-size:12px;color:var(--dim);margin:6px 0 16px;line-height:1.4"></p>
+    <h2>Tip control</h2>
+    <div class="ctl"><label for="gap">Tip height (gap)<output id="gapO"></output></label><input id="gap" type="range" min="0.4" max="1.2" step="0.01" value="0.7"></div>
+    <div class="ctl"><label for="phi">Work function (barrier)<output id="phiO"></output></label><input id="phi" type="range" min="2" max="6" step="0.1" value="4.5"></div>
+    <div class="ctl"><label for="bias">Bias voltage<output id="biasO"></output></label><input id="bias" type="range" min="0.1" max="3" step="0.1" value="1.0"></div>
+    <div class="ctl"><label for="speed">Scan speed<output id="speedO"></output></label><input id="speed" type="range" min="1" max="10" step="1" value="4"></div>
+    <div class="btns">
+      <button id="ctrl">Control: Manual (pad)</button>
+      <button id="mode">Mode: Constant current</button>
+      <button id="reset">Reset scan</button>
+      <button id="infoBtn">Info</button>
+    </div>
+    <dl>
+      <dt>Tunneling current</dt><dd id="rI">—</dd>
+      <dt>Transmission T</dt><dd id="rT">—</dd>
+      <dt>Scan progress</dt><dd id="rRows">0</dd>
+      <dt>FPS</dt><dd id="rFps">—</dd>
+    </dl>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Lattice and physics ----------
+  var NA = 12;                 // atoms per side
+  var A = 0.35;                // lattice constant, nm
+  var EXT = (NA - 1) * A;      // lattice extent, nm
+  var RAD = 0.13;              // atom radius, nm
+  var BUMP = 0.10;             // corrugation amplitude, nm
+  var SIG = 0.085;             // gaussian width of each atom, nm
+  var G = 64;                  // scan grid size
+  var I0 = 1e6;                // current prefactor (nA), arbitrary scale
+
+  var FB = 0.98;               // feedback gain per sample (fraction of the error removed)
+  var p = { gap: 0.7, phi: 4.5, bias: 1.0, speed: 4, constCurrent: true, manual: true };
+
+  function height(x, y) {
+    var ix = Math.round(x / A), iy = Math.round(y / A), h = 0;
+    for (var i = ix - 1; i <= ix + 1; i++) {
+      for (var j = iy - 1; j <= iy + 1; j++) {
+        if (i < 0 || j < 0 || i >= NA || j >= NA) continue;
+        var dx = x - i * A, dy = y - j * A;
+        h += Math.exp(-(dx * dx + dy * dy) / (2 * SIG * SIG));
+      }
+    }
+    return BUMP * Math.min(h, 1.15);
+  }
+  function kappa() { return 5.12 * Math.sqrt(p.phi); }          // per nm
+  function transmission(d) { return Math.exp(-2 * kappa() * d); }
+  function current(d) { return I0 * p.bias * transmission(d); }  // nA
+
+  // Constant-current mode holds a CURRENT setpoint; the gap follows from it.
+  var Iset = current(p.gap);
+  function captureSetpoint() { Iset = current(p.gap); }
+  function gapForSetpoint() { return Math.log(I0 * p.bias / Iset) / (2 * kappa()); }
+
+  // ---------- Scan state ----------
+  var data, filled, row, col, dir, tip, done, mx = 0, my = 0;
+  function resetScan(keepPos) {
+    data = new Float32Array(G * G);
+    filled = new Uint8Array(G * G);
+    row = 0; col = 0; dir = 1; done = false;
+    if (keepPos && tip) return;          // wipe the image only, leave the tip where it is
+    mx = my = EXT / 2;
+    tip = { x: mx, y: my, z: BUMP + p.gap };
+  }
+  var xs = function (i) { return -A * 0.4 + (EXT + A * 0.8) * i / (G - 1); };
+
+  function stepScan() {
+    if (done) return;
+    var x = xs(col), y = xs(row);
+    var h = height(x, y);
+    var gap, z, val;
+    if (p.constCurrent) {
+      z = h + p.gap;                       // feedback holds the gap constant
+      tip.z += (z - tip.z) * FB;
+      gap = tip.z - h;
+      val = tip.z;
+    } else {
+      z = BUMP + p.gap;                    // level tip
+      tip.z = z;
+      gap = z - h;
+      val = Math.log(current(gap));
+    }
+    tip.x = x; tip.y = y;
+    tip.gap = gap;
+    var idx = row * G + col;
+    data[idx] = val; filled[idx] = 1;
+    col += dir;
+    if (col >= G || col < 0) {
+      dir = -dir; col = Math.max(0, Math.min(G - 1, col));
+      row++;
+      if (row >= G) { done = true; row = G; }
+    }
+  }
+
+  // ---------- Camera and projection ----------
+  var cv = document.getElementById("view"), ctx = cv.getContext("2d");
+  var W = 0, H = 0, dpr = 1;
+  var yaw = 0.7, pitch = 0.75, zoom = 1;
+  var cx0 = EXT / 2, cy0 = EXT / 2;
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    var r = cv.getBoundingClientRect();
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(cv);
+
+  var cosY, sinY, cosP, sinP, scale;
+  function setCam() {
+    cosY = Math.cos(yaw); sinY = Math.sin(yaw);
+    cosP = Math.cos(pitch); sinP = Math.sin(pitch);
+    scale = Math.min(W * 0.15, H * 0.21) * zoom;
+  }
+  var out = { x: 0, y: 0, d: 0, f: 1 };
+  function proj(x, y, z) {
+    x -= cx0; y -= cy0; z -= 0.35;
+    var X = x * cosY - y * sinY;
+    var Y = x * sinY + y * cosY;
+    var up = z * cosP + Y * sinP;
+    var depth = Y * cosP - z * sinP;
+    var f = 12 / (12 + depth);
+    out.x = W / 2 + X * scale * f;
+    out.y = H * 0.56 - up * scale * f;
+    out.d = depth; out.f = f;
+    return out;
+  }
+
+  // ---------- Color ----------
+  function ramp(t) {   // dark teal -> amber -> pale
+    t = Math.max(0, Math.min(1, t));
+    var r, g, b;
+    if (t < 0.5) { var u = t / 0.5; r = 20 + 215 * u; g = 60 + 120 * u; b = 90 - 40 * u; }
+    else { var v = (t - 0.5) / 0.5; r = 235 + 20 * v; g = 180 + 60 * v; b = 50 + 150 * v; }
+    return [r | 0, g | 0, b | 0];
+  }
+
+  // ---------- Pointer interaction ----------
+  var drag = null;
+  cv.addEventListener("pointerdown", function (e) { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    yaw -= (e.clientX - drag.x) * 0.008;
+    pitch = Math.max(0.15, Math.min(1.45, pitch + (e.clientY - drag.y) * 0.006));
+    drag.x = e.clientX; drag.y = e.clientY;
+  });
+  cv.addEventListener("pointerup", function () { drag = null; });
+  cv.addEventListener("pointercancel", function () { drag = null; });
+  cv.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    zoom = Math.max(0.5, Math.min(3, zoom * Math.exp(-e.deltaY * 0.0012)));
+  }, { passive: false });
+
+  // ---------- Controls ----------
+  function syncGap() {
+    p.gap = gapForSetpoint();
+    var el = document.getElementById("gap");
+    el.value = Math.max(0.4, Math.min(1.2, p.gap));
+    document.getElementById("gapO").textContent = p.gap.toFixed(2) + " nm";
+  }
+  function bind(id, key, fmt) {
+    var el = document.getElementById(id), o = document.getElementById(id + "O");
+    function upd() { p[key] = parseFloat(el.value); o.textContent = fmt(p[key]); }
+    el.addEventListener("input", function () {
+      upd();
+      // old pixels were recorded with different parameters, so they no longer match the new ones
+      if (key === "speed") return;
+      if (p.constCurrent) {
+        if (key === "gap") captureSetpoint();      // moving the slider picks a new current setpoint
+        else syncGap();                            // feedback moves the tip to keep that current
+      }
+      resetScan(true);
+    });
+    upd();
+  }
+  bind("gap", "gap", function (v) { return v.toFixed(2) + " nm"; });
+  bind("phi", "phi", function (v) { return v.toFixed(1) + " eV"; });
+  bind("bias", "bias", function (v) { return v.toFixed(1) + " V"; });
+  bind("speed", "speed", function (v) { return String(v); });
+
+  var modeBtn = document.getElementById("mode");
+  modeBtn.addEventListener("click", function () {
+    p.constCurrent = !p.constCurrent;
+    if (p.constCurrent) captureSetpoint();
+    modeBtn.textContent = "Mode: " + (p.constCurrent ? "Constant current" : "Constant height");
+    document.getElementById("imgLabel").textContent = p.constCurrent ? "Height map" : "Current map";
+    resetScan();
+  });
+  document.getElementById("reset").addEventListener("click", function () { resetScan(); });
+  var info = document.getElementById("info");
+  document.getElementById("infoBtn").addEventListener("click", function () { info.classList.add("open"); });
+  document.getElementById("closeInfo").addEventListener("click", function () { info.classList.remove("open"); });
+
+  // ---------- Controller / keyboard input ----------
+  var ctrlBtn = document.getElementById("ctrl"), resetBtn = document.getElementById("reset");
+  var gapEl = document.getElementById("gap"), gapO = document.getElementById("gapO");
+  ctrlBtn.addEventListener("click", function () {
+    p.manual = !p.manual;
+    ctrlBtn.textContent = "Control: " + (p.manual ? "Manual (pad)" : "Auto raster");
+    resetScan();
+  });
+  var XMIN = xs(0), XMAX = xs(G - 1);
+  var keys = {};
+  window.addEventListener("keydown", function (e) {
+    var k = e.key.toLowerCase();
+    if (e.target.tagName === "INPUT" && k.indexOf("arrow") === 0) return;   // let a focused slider use the arrows
+    if ("wasdqe".indexOf(k) >= 0 && k.length === 1 || k.indexOf("arrow") === 0) { keys[k] = true; e.preventDefault(); }
+  });
+  window.addEventListener("keyup", function (e) { keys[e.key.toLowerCase()] = false; });
+  window.addEventListener("blur", function () { keys = {}; });   // no stuck keys after alt-tab
+  function dz(v) { var a = Math.abs(v); return a < 0.15 ? 0 : (v < 0 ? -1 : 1) * Math.pow((a - 0.15) / 0.85, 2); }
+  function padButton(b) {
+    if (b === 0) modeBtn.click();
+    else if (b === 1) ctrlBtn.click();
+    else if (b === 2) resetBtn.click();
+    else if (b === 3) info.classList.toggle("open");
+  }
+  var padPrev = [];
+  function readInput() {
+    var s = { lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, zoom: 0, name: null };
+    var pads = [];
+    try { pads = navigator.getGamepads ? navigator.getGamepads() : []; } catch (err) { pads = []; }
+    for (var i = 0; i < pads.length; i++) {
+      var g = pads[i];
+      if (!g || !g.connected) continue;
+      s.name = g.id;
+      s.lx = dz(g.axes[0] || 0); s.ly = dz(g.axes[1] || 0);
+      s.rx = dz(g.axes[2] || 0); s.ry = dz(g.axes[3] || 0);
+      s.lt = g.buttons[6] ? g.buttons[6].value : 0; s.rt = g.buttons[7] ? g.buttons[7].value : 0;
+      s.zoom = (g.buttons[5] && g.buttons[5].pressed ? 1 : 0) - (g.buttons[4] && g.buttons[4].pressed ? 1 : 0);
+      for (var b = 0; b < 4; b++) {
+        var down = !!(g.buttons[b] && g.buttons[b].pressed);
+        if (down && !padPrev[b]) padButton(b);
+        padPrev[b] = down;
+      }
+      break;
+    }
+    var kx = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
+    var ky = (keys.s || keys.arrowdown ? 1 : 0) - (keys.w || keys.arrowup ? 1 : 0);
+    s.lx = Math.max(-1, Math.min(1, s.lx + kx)); s.ly = Math.max(-1, Math.min(1, s.ly + ky));
+    s.rt = Math.min(1, s.rt + (keys.e ? 1 : 0)); s.lt = Math.min(1, s.lt + (keys.q ? 1 : 0));
+    return s;
+  }
+
+  function recordAt(x, y) {
+    var h = height(x, y), z, gap, val;
+    if (p.constCurrent) { z = h + p.gap; tip.z += (z - tip.z) * FB; gap = tip.z - h; val = tip.z; }
+    else { z = BUMP + p.gap; tip.z = z; gap = z - h; val = Math.log(current(gap)); }
+    tip.x = x; tip.y = y; tip.gap = gap;
+    var c = Math.round((x - XMIN) / (XMAX - XMIN) * (G - 1)), r = Math.round((y - XMIN) / (XMAX - XMIN) * (G - 1));
+    if (c >= 0 && c < G && r >= 0 && r < G) { data[r * G + c] = val; filled[r * G + c] = 1; }
+  }
+
+  function control(dt, s) {
+    yaw -= s.rx * dt * 2.2;
+    pitch = Math.max(0.15, Math.min(1.45, pitch + s.ry * dt * 1.5));
+    zoom = Math.max(0.5, Math.min(3, zoom * Math.exp(s.zoom * dt * 0.9)));
+    var dg = (s.rt - s.lt) * dt * 0.4;
+    if (dg) {
+      p.gap = Math.max(0.4, Math.min(1.2, p.gap + dg));
+      gapEl.value = p.gap; gapO.textContent = p.gap.toFixed(2) + " nm";
+      if (p.constCurrent) captureSetpoint();
+    }
+    if (!p.manual) return;
+    var v = 0.4 * p.speed * dt, cy = Math.cos(yaw), sy = Math.sin(yaw);
+    var dx = v * (s.lx * cy - s.ly * sy), dy = v * (-s.lx * sy - s.ly * cy);
+    var n = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.03));
+    for (var k = 0; k < n; k++) {
+      mx = Math.max(XMIN, Math.min(XMAX, mx + dx / n)); my = Math.max(XMIN, Math.min(XMAX, my + dy / n));
+      recordAt(mx, my);
+    }
+  }
+
+  var padCv = document.getElementById("pad"), pctx = padCv.getContext("2d"), padSt = document.getElementById("padStatus"), padMsg = "";
+  function drawPad(s) {
+    pctx.clearRect(0, 0, 260, 84);
+    pctx.textAlign = "center"; pctx.font = "10px sans-serif";
+    function stick(cx, x, y, lab) {
+      pctx.strokeStyle = "#26323f"; pctx.lineWidth = 2; pctx.beginPath(); pctx.arc(cx, 38, 28, 0, 6.2832); pctx.stroke();
+      pctx.fillStyle = "#ffb454"; pctx.beginPath(); pctx.arc(cx + x * 20, 38 + y * 20, 7, 0, 6.2832); pctx.fill();
+      pctx.fillStyle = "#8497a8"; pctx.fillText(lab, cx, 80);
+    }
+    function trig(x, v, lab) {
+      pctx.fillStyle = "#1d2833"; pctx.fillRect(x, 10, 20, 56);
+      pctx.fillStyle = "#5ec2d6"; pctx.fillRect(x, 66 - 56 * v, 20, 56 * v);
+      pctx.fillStyle = "#8497a8"; pctx.fillText(lab, x + 10, 80);
+    }
+    stick(36, s.lx, s.ly, "MOVE"); stick(104, s.rx, s.ry, "ORBIT");
+    trig(172, s.lt, "LT in"); trig(212, s.rt, "RT out");
+    var m = s.name ? "Controller: " + s.name.slice(0, 44) : "No controller detected. Connect one and press a button. Keyboard works too: WASD / arrows to move, Q/E for height.";
+    if (m !== padMsg) { padSt.textContent = m; padMsg = m; }
+  }
+
+  // ---------- Rendering ----------
+  var imgCv = document.getElementById("img"), imgCtx = imgCv.getContext("2d");
+  var imgData = imgCtx.createImageData(G, G);
+  var lo = 0, hi = 1, fc = 0;
+
+  function updateRange() {
+    var mn = Infinity, mx = -Infinity; fc = 0;
+    for (var i = 0; i < data.length; i++) if (filled[i]) { fc++; if (data[i] < mn) mn = data[i]; if (data[i] > mx) mx = data[i]; }
+    if (mn === Infinity) { mn = 0; mx = 1; }
+    if (mx - mn < 1e-6) mx = mn + 1e-6;
+    lo = mn; hi = mx;
+  }
+
+  function drawImage() {
+    var d = imgData.data;
+    for (var i = 0; i < G * G; i++) {
+      var c = filled[i] ? ramp((data[i] - lo) / (hi - lo)) : [18, 24, 31];
+      d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255;
+    }
+    imgCtx.putImageData(imgData, 0, 0);
+  }
+
+  var atoms = [];
+  for (var i = 0; i < NA; i++) for (var j = 0; j < NA; j++) atoms.push({ x: i * A, y: j * A, d: 0 });
+
+  function drawScene() {
+    ctx.clearRect(0, 0, W, H);
+    setCam();
+
+    // substrate plate
+    var corners = [[-0.3, -0.3], [EXT + 0.3, -0.3], [EXT + 0.3, EXT + 0.3], [-0.3, EXT + 0.3]];
+    ctx.beginPath();
+    for (var k = 0; k < 4; k++) {
+      var q = proj(corners[k][0], corners[k][1], -RAD * 1.6 + BUMP);
+      if (k === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "#101820"; ctx.fill();
+    ctx.strokeStyle = "#26323f"; ctx.lineWidth = 1; ctx.stroke();
+
+    // atoms, far to near
+    for (var a = 0; a < atoms.length; a++) {
+      var at = atoms[a];
+      at.d = proj(at.x, at.y, BUMP - RAD).d;
+    }
+    atoms.sort(function (m, n) { return n.d - m.d; });
+    for (a = 0; a < atoms.length; a++) {
+      at = atoms[a];
+      var s = proj(at.x, at.y, BUMP - RAD);
+      var r = RAD * scale * s.f;
+      var gr = ctx.createRadialGradient(s.x - r * 0.35, s.y - r * 0.4, r * 0.1, s.x, s.y, r);
+      gr.addColorStop(0, "#9fdbe8"); gr.addColorStop(0.55, "#3f93a8"); gr.addColorStop(1, "#173845");
+      ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, 6.2832);
+      ctx.fillStyle = gr; ctx.fill();
+    }
+
+    // scan trail (rows of recorded points)
+    var span = hi - lo;
+    for (var rr = 0; rr < G; rr++) {
+      var prev = null;
+      for (var cc = 0; cc < G; cc++) {
+        var idx = rr * G + cc;
+        if (!filled[idx]) { prev = null; continue; }
+        var t = (data[idx] - lo) / span;
+        var z = p.constCurrent ? data[idx] : (BUMP + p.gap);   // level tip in constant-height mode; colour carries the current
+        var pt = proj(xs(cc), xs(rr), z);
+        var cur = { x: pt.x, y: pt.y };
+        if (prev) {
+          var col3 = ramp(t);
+          ctx.strokeStyle = "rgb(" + col3[0] + "," + col3[1] + "," + col3[2] + ")";
+          ctx.lineWidth = 1.6;
+          ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(cur.x, cur.y); ctx.stroke();
+        }
+        prev = cur;
+      }
+    }
+
+    // tip
+    var p0 = proj(tip.x, tip.y, tip.z);
+    var tp = { x: p0.x, y: p0.y, f: p0.f };          // copy: proj() reuses a single object
+    var top = proj(tip.x, tip.y, tip.z + 1.1);
+    var w = 0.16 * scale * top.f;
+    ctx.beginPath();
+    ctx.moveTo(tp.x, tp.y); ctx.lineTo(top.x - w, top.y); ctx.lineTo(top.x + w, top.y); ctx.closePath();
+    var tg = ctx.createLinearGradient(tp.x, tp.y, top.x, top.y);
+    tg.addColorStop(0, "#f3d8a8"); tg.addColorStop(1, "#6b5a3e");
+    ctx.fillStyle = tg; ctx.fill();
+    // current glow at apex, brightness follows the current
+    var gapNow = (tip.gap === undefined) ? p.gap : tip.gap;
+    var glow = Math.max(0.1, Math.min(1, Math.log10(Math.max(current(gapNow), 1e-9) / 1e-3 + 1) / 3));
+    var rg = ctx.createRadialGradient(tp.x, tp.y, 0, tp.x, tp.y, 26);
+    rg.addColorStop(0, "rgba(255,180,84," + (0.9 * glow) + ")"); rg.addColorStop(1, "rgba(255,180,84,0)");
+    ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(tp.x, tp.y, 26, 0, 6.2832); ctx.fill();
+  }
+
+  function fmtSci(v) {
+    if (!isFinite(v) || v === 0) return "0";
+    var e = Math.floor(Math.log10(Math.abs(v)));
+    return (v / Math.pow(10, e)).toFixed(2) + "e" + e;
+  }
+
+  // ---------- Main loop ----------
+  var rI = document.getElementById("rI"), rT = document.getElementById("rT"),
+      rRows = document.getElementById("rRows"), rFps = document.getElementById("rFps");
+  var frames = 0, last = performance.now(), hud = 0, lastT = last;
+
+  function frame(now) {
+    var dt = Math.max(0, Math.min(0.05, (now - lastT) / 1000)); lastT = now;
+    var inp = readInput(); control(dt, inp); drawPad(inp);
+    var steps = p.manual ? 0 : p.speed * 2;
+    for (var s = 0; s < steps; s++) stepScan();
+    updateRange();
+    drawImage();
+    drawScene();
+
+    frames++;
+    if (now - last >= 500) {
+      rFps.textContent = Math.round(frames * 1000 / (now - last));
+      frames = 0; last = now;
+    }
+    if (now - hud > 100) {
+      var g = (tip.gap === undefined) ? p.gap : tip.gap;
+      var I = current(g);
+      rI.textContent = (I >= 1 ? I.toFixed(2) + " nA" : (I * 1000 >= 1 ? (I * 1000).toFixed(2) + " pA" : (I * 1e6).toFixed(2) + " fA"));
+      rT.textContent = fmtSci(transmission(g));
+      document.getElementById("rI2").textContent = rI.textContent;
+      document.getElementById("rT2").textContent = rT.textContent;
+      rRows.textContent = p.manual ? Math.round(100 * fc / (G * G)) + "% mapped" : Math.min(row, G) + " / " + G;
+      hud = now;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  resetScan();
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
